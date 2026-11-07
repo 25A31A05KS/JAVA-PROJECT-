@@ -1,0 +1,670 @@
+import java.util.*;
+import javax.swing.*;
+import java.awt.*;
+
+public class DroneRouteOptimization {
+
+    static int n;
+    static double[][] dist;
+
+    static double bestCost;
+    static int[] bestTour;
+    static boolean[] visited;
+
+    static long nodesExplored = 0;
+    static long prunedNodes = 0;
+
+    static double bruteForceCost;
+    static int[] bruteForceTour;
+
+    // 1. Read coordinates
+    static void readCoordinates(Scanner sc) {
+
+        System.out.print("Enter number of sample locations: ");
+        n = sc.nextInt();
+
+        if (n < 1) {
+            throw new IllegalArgumentException(
+                "Number of locations must be positive."
+            );
+        }
+
+        double[] x = new double[n];
+        double[] y = new double[n];
+
+        System.out.println("Enter X and Y coordinates:");
+
+        for (int i = 0; i < n; i++) {
+
+            System.out.print("Location " + (i + 1) + ": ");
+
+            x[i] = sc.nextDouble();
+            y[i] = sc.nextDouble();
+
+            if (!Double.isFinite(x[i]) ||
+                !Double.isFinite(y[i])) {
+
+                throw new IllegalArgumentException(
+                    "Coordinates must be finite."
+                );
+            }
+        }
+
+        dist = new double[n][n];
+
+        for (int i = 0; i < n; i++) {
+
+            for (int j = 0; j < n; j++) {
+
+                double dx = x[i] - x[j];
+                double dy = y[i] - y[j];
+
+                dist[i][j] = Math.hypot(dx, dy);
+            }
+        }
+    }
+
+    // 2. Read distance matrix
+    static void readDistanceMatrix(Scanner sc) {
+
+        System.out.print("Enter number of locations: ");
+        n = sc.nextInt();
+
+        if (n < 1) {
+            throw new IllegalArgumentException(
+                "Number of locations must be positive."
+            );
+        }
+
+        dist = new double[n][n];
+
+        System.out.println("Enter distance matrix:");
+
+        for (int i = 0; i < n; i++) {
+
+            for (int j = 0; j < n; j++) {
+
+                dist[i][j] = sc.nextDouble();
+
+                if (dist[i][j] < 0 ||
+                    !Double.isFinite(dist[i][j])) {
+
+                    throw new IllegalArgumentException(
+                        "Distances must be non-negative and finite."
+                    );
+                }
+            }
+        }
+    }
+
+    // 3. Calculate tour cost
+    static double calculateCost(int[] tour) {
+
+        double cost = 0;
+
+        for (int i = 0; i < n; i++) {
+
+            cost += dist[tour[i]][tour[i + 1]];
+        }
+
+        return cost;
+    }
+
+    // 4. Print route
+    static void printTour(int[] tour) {
+
+        System.out.print("Drone Route: ");
+
+        for (int i = 0; i < tour.length; i++) {
+
+            System.out.print("P" + (tour[i] + 1));
+
+            if (i < tour.length - 1) {
+                System.out.print(" -> ");
+            }
+        }
+
+        System.out.println();
+    }
+
+    // 5. Nearest Neighbor Algorithm
+    static int[] nearestNeighbor() {
+
+        boolean[] used = new boolean[n];
+
+        int[] tour = new int[n + 1];
+
+        int current = 0;
+        double cost = 0;
+
+        used[current] = true;
+        tour[0] = current;
+
+        for (int i = 1; i < n; i++) {
+
+            int next = -1;
+            double min = Double.POSITIVE_INFINITY;
+
+            for (int j = 0; j < n; j++) {
+
+                if (!used[j] && dist[current][j] < min) {
+
+                    min = dist[current][j];
+                    next = j;
+                }
+            }
+
+            if (next == -1) {
+                throw new IllegalArgumentException(
+                    "Unable to find the next location."
+                );
+            }
+
+            tour[i] = next;
+            used[next] = true;
+
+            cost += dist[current][next];
+
+            current = next;
+        }
+
+        cost += dist[current][0];
+
+        tour[n] = 0;
+
+        System.out.println("\nNEAREST NEIGHBOR RESULT");
+
+        printTour(tour);
+
+        System.out.printf("Total Cost: %.2f%n", cost);
+
+        return tour;
+    }
+
+    // 6. Lower Bound
+    static double lowerBound(int current, double currentCost) {
+
+        double bound = currentCost;
+
+        for (int i = 0; i < n; i++) {
+
+            if (i != current && visited[i]) {
+                continue;
+            }
+
+            double minEdge = Double.POSITIVE_INFINITY;
+
+            for (int j = 0; j < n; j++) {
+
+                if (i == j) {
+                    continue;
+                }
+
+                if (j != 0 && visited[j]) {
+                    continue;
+                }
+
+                minEdge = Math.min(
+                    minEdge,
+                    dist[i][j]
+                );
+            }
+
+            if (Double.isInfinite(minEdge)) {
+                return Double.POSITIVE_INFINITY;
+            }
+
+            bound += minEdge;
+        }
+
+        return bound;
+    }
+
+    // 7. Branch and Bound TSP
+    static void branchAndBound(
+        int current,
+        int level,
+        double currentCost,
+        int[] path
+    ) {
+
+        nodesExplored++;
+
+        // All locations visited
+        if (level == n) {
+
+            double totalCost =
+                currentCost + dist[current][0];
+
+            if (totalCost < bestCost) {
+
+                bestCost = totalCost;
+
+                bestTour = path.clone();
+
+                bestTour[n] = 0;
+            }
+
+            return;
+        }
+
+        // Calculate lower bound
+        double bound = lowerBound(
+            current,
+            currentCost
+        );
+
+        // Pruning
+        if (bound >= bestCost) {
+
+            prunedNodes++;
+
+            return;
+        }
+
+        // Visit unvisited locations
+        for (int next = 1; next < n; next++) {
+
+            if (!visited[next]) {
+
+                visited[next] = true;
+
+                path[level] = next;
+
+                branchAndBound(
+                    next,
+                    level + 1,
+                    currentCost + dist[current][next],
+                    path
+                );
+
+                visited[next] = false;
+            }
+        }
+    }
+
+    // 8. Solve Branch and Bound
+    static void solveBranchAndBound() {
+
+        bestCost = Double.POSITIVE_INFINITY;
+
+        bestTour = new int[n + 1];
+
+        visited = new boolean[n];
+
+        nodesExplored = 0;
+        prunedNodes = 0;
+
+        // Initial upper bound using Nearest Neighbor
+        int[] initialTour = nearestNeighbor();
+
+        bestCost = calculateCost(initialTour);
+
+        bestTour = initialTour.clone();
+
+        int[] path = new int[n + 1];
+
+        path[0] = 0;
+
+        visited[0] = true;
+
+        branchAndBound(
+            0,
+            1,
+            0,
+            path
+        );
+
+        System.out.println("\nBRANCH AND BOUND RESULT");
+
+        printTour(bestTour);
+
+        System.out.printf(
+            "Optimal Cost: %.2f%n",
+            bestCost
+        );
+
+        System.out.println(
+            "Nodes Explored: " + nodesExplored
+        );
+
+        System.out.println(
+            "Nodes Pruned: " + prunedNodes
+        );
+    }
+
+    // 9. Brute Force Algorithm
+    static void bruteForce(
+        int current,
+        int level,
+        double cost,
+        boolean[] used,
+        int[] path
+    ) {
+
+        if (level == n) {
+
+            double total =
+                cost + dist[current][0];
+
+            if (total < bruteForceCost) {
+
+                bruteForceCost = total;
+
+                bruteForceTour = path.clone();
+
+                bruteForceTour[n] = 0;
+            }
+
+            return;
+        }
+
+        for (int next = 1; next < n; next++) {
+
+            if (!used[next]) {
+
+                used[next] = true;
+
+                path[level] = next;
+
+                bruteForce(
+                    next,
+                    level + 1,
+                    cost + dist[current][next],
+                    used,
+                    path
+                );
+
+                used[next] = false;
+            }
+        }
+    }
+
+    // 10. Verify Branch and Bound using Brute Force
+    static void verifyWithBruteForce() {
+
+        if (n > 10) {
+
+            System.out.println(
+                "\nBrute Force verification skipped: " +
+                "too many locations."
+            );
+
+            return;
+        }
+
+        bruteForceCost = Double.POSITIVE_INFINITY;
+
+        boolean[] used = new boolean[n];
+
+        int[] path = new int[n + 1];
+
+        used[0] = true;
+
+        path[0] = 0;
+
+        bruteForce(
+            0,
+            1,
+            0,
+            used,
+            path
+        );
+
+        System.out.println("\nBRUTE FORCE VERIFICATION");
+
+        printTour(bruteForceTour);
+
+        System.out.printf(
+            "Brute Force Cost: %.2f%n",
+            bruteForceCost
+        );
+
+        if (Math.abs(bestCost - bruteForceCost) < 1e-8) {
+
+            System.out.println(
+                "Verification Successful: Both algorithms match."
+            );
+
+        } else {
+
+            System.out.println(
+                "Verification Failed: Costs do not match."
+            );
+        }
+    }
+
+    // 11. Display Distance Matrix
+    static void displayDistanceMatrix() {
+
+        System.out.println("\nDISTANCE MATRIX:");
+
+        for (int i = 0; i < n; i++) {
+
+            for (int j = 0; j < n; j++) {
+
+                System.out.printf(
+                    "%8.2f",
+                    dist[i][j]
+                );
+            }
+
+            System.out.println();
+        }
+    }
+
+    // 12. Route Visualization using Java Swing
+    static void visualizeRoute(int[] tour) {
+
+        SwingUtilities.invokeLater(() -> {
+
+            JFrame frame = new JFrame(
+                "Drone Soil Sampling Route"
+            );
+
+            frame.setDefaultCloseOperation(
+                JFrame.DISPOSE_ON_CLOSE
+            );
+
+            frame.setSize(750, 650);
+
+            JPanel panel = new JPanel() {
+
+                @Override
+                protected void paintComponent(Graphics g) {
+
+                    super.paintComponent(g);
+
+                    Graphics2D g2 = (Graphics2D) g;
+
+                    g2.setRenderingHint(
+                        RenderingHints.KEY_ANTIALIASING,
+                        RenderingHints.VALUE_ANTIALIAS_ON
+                    );
+
+                    int width = getWidth();
+                    int height = getHeight();
+
+                    int centerX = width / 2;
+                    int centerY = height / 2;
+
+                    int radius =
+                        Math.min(width, height) / 2 - 80;
+
+                    int[] px = new int[n];
+                    int[] py = new int[n];
+
+                    // Circular position of locations
+                    for (int i = 0; i < n; i++) {
+
+                        double angle =
+                            2 * Math.PI * i / n
+                            - Math.PI / 2;
+
+                        px[i] = centerX +
+                            (int)(radius * Math.cos(angle));
+
+                        py[i] = centerY +
+                            (int)(radius * Math.sin(angle));
+                    }
+
+                    // Draw route lines
+                    g2.setColor(Color.BLUE);
+
+                    g2.setStroke(
+                        new BasicStroke(3)
+                    );
+
+                    for (int i = 0; i < n; i++) {
+
+                        int from = tour[i];
+                        int to = tour[i + 1];
+
+                        g2.drawLine(
+                            px[from],
+                            py[from],
+                            px[to],
+                            py[to]
+                        );
+                    }
+
+                    // Draw sample points
+                    for (int i = 0; i < n; i++) {
+
+                        if (i == 0) {
+                            g2.setColor(Color.RED);
+                        } else {
+                            g2.setColor(Color.GREEN.darker());
+                        }
+
+                        g2.fillOval(
+                            px[i] - 15,
+                            py[i] - 15,
+                            30,
+                            30
+                        );
+
+                        g2.setColor(Color.BLACK);
+
+                        g2.drawString(
+                            "P" + (i + 1),
+                            px[i] - 10,
+                            py[i] - 22
+                        );
+                    }
+
+                    g2.setColor(Color.BLACK);
+
+                    g2.drawString(
+                        "Red = Base | Green = Sample Points | Blue = Route",
+                        20,
+                        25
+                    );
+                }
+            };
+
+            frame.add(panel);
+
+            frame.setLocationRelativeTo(null);
+
+            frame.setVisible(true);
+        });
+    }
+
+    // 13. Main Method
+    public static void main(String[] args) {
+
+        Scanner sc = new Scanner(System.in);
+
+        System.out.println(
+            "========================================"
+        );
+
+        System.out.println(
+            " DRONE SOIL-SAMPLING ROUTE OPTIMIZATION"
+        );
+
+        System.out.println(
+            "========================================"
+        );
+
+        System.out.println("1. Enter Coordinates");
+
+        System.out.println("2. Enter Distance Matrix");
+
+        System.out.print("Choose input type: ");
+
+        try {
+
+            int choice = sc.nextInt();
+
+            if (choice == 1) {
+
+                readCoordinates(sc);
+
+            } else if (choice == 2) {
+
+                readDistanceMatrix(sc);
+
+            } else {
+
+                System.out.println("Invalid choice.");
+
+                return;
+            }
+
+            // Display distances
+            displayDistanceMatrix();
+
+            // Nearest Neighbor and Branch and Bound
+            solveBranchAndBound();
+
+            // Verify optimal result
+            verifyWithBruteForce();
+
+            // Check GUI support before opening JFrame
+            System.out.println(
+                "\nChecking GUI availability..."
+            );
+
+            if (!GraphicsEnvironment.isHeadless()) {
+
+                System.out.println(
+                    "Opening Route Visualization..."
+                );
+
+                visualizeRoute(bestTour);
+
+            } else {
+
+                System.out.println(
+                    "GUI is not supported in this online compiler."
+                );
+
+                System.out.println(
+                    "Route visualization is skipped."
+                );
+
+                System.out.println(
+                    "Run this program in VS Code to see the GUI."
+                );
+            }
+
+        } catch (InputMismatchException e) {
+
+            System.out.println(
+                "Input Error: Please enter valid numeric values."
+            );
+
+        } catch (IllegalArgumentException e) {
+
+            System.out.println(
+                "Input Error: " + e.getMessage()
+            );
+
+        } finally {
+
+            sc.close();
+        }
+    }
+}
